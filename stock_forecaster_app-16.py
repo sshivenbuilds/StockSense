@@ -72,6 +72,9 @@ def fetch_data(ticker):
     df = yf.download(ticker, start="2015-01-01", progress=False)
     if df.empty:
         return None
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    
     df = df[['Close']].copy()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
