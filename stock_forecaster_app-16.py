@@ -140,7 +140,7 @@ def make_chart(df, ticker):
 # ── STOCKS LIST ──────────────────────────────────────────────
 STOCKS = {
     "── Select a stock ──": None,
-    "📊 Nifty 50": "^NSEI",
+    "📊 Nifty 50": "NIFTYBEES.NS",
     "📊 Sensex (BSE)": "BSE-500.BO",
     "📊 Nifty Bank": "^NSEBANK",
     "📊 Nifty IT": "^CNXIT",
@@ -274,8 +274,7 @@ STOCKS = {
     "Nvidia (NASDAQ)": "NVDA",
     "S&P 500 Index": "^GSPC",
 }
-
-INDIAN_INDICES = {"^NSEI", "BSE-500.BO", "^NSEBANK", "^CNXIT"}
+INDIAN_INDICES = {"NIFTYBEES.NS", "BSE-500.BO", "^NSEBANK", "^CNXIT"}
 
 
 # ── UI ───────────────────────────────────────────────────────
