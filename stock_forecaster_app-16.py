@@ -69,18 +69,29 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color:
 # ── HELPERS ──────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def fetch_data(ticker):
-    df = yf.download(ticker, start="2015-01-01", progress=False)
-    if df.empty:
-        return None
-    if isinstance(df.columns, pd.MultiIndex):
-       df.columns = df.columns.get_level_values(0)
-    df = df[['Close']].copy()
-    df.index = pd.to_datetime(df.index)
-    df = df.sort_index()
-    df['Close'] = df['Close'].ffill()
-    df = df.asfreq('B')
-    df['Close'] = df['Close'].ffill()
-    return df
+    for attempt in range(3):  # retry up to 3 times
+        try:
+            df = yf.download(ticker, start="2015-01-01", 
+                           progress=False, timeout=30)
+            if df.empty:
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if 'Close' not in df.columns:
+                continue
+            df = df[['Close']].copy()
+            df.index = pd.to_datetime(df.index)
+            df = df.sort_index()
+            df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+            df['Close'] = df['Close'].ffill()
+            df = df.asfreq('B')
+            df['Close'] = df['Close'].ffill()
+            if df['Close'].dropna().shape[0] < 60:
+                continue
+            return df
+        except Exception:
+            continue
+    return None
 
 
 def find_best_order(series):
@@ -140,7 +151,7 @@ def make_chart(df, ticker):
 STOCKS = {
     "── Select a stock ──": None,
     "📊 Nifty 50": "^NSEI",
-    "📊 Sensex / BSE (SETFNIF50 ETF)": "SETFNIF50.NS",
+    "📊 Sensex (BSE)": "^BSESN",
     "📊 Nifty Bank": "^NSEBANK",
     "📊 Nifty IT": "^CNXIT",
     "HDFC Bank": "HDFCBANK.NS",
@@ -274,7 +285,7 @@ STOCKS = {
     "S&P 500 Index": "^GSPC",
 }
 
-INDIAN_INDICES = {"^NSEI", "BSE-500.BO", "^NSEBANK", "^CNXIT"}
+INDIAN_INDICES = {"^NSEI",  "^BSESN", "^NSEBANK", "^CNXIT"}
 
 
 # ── UI ───────────────────────────────────────────────────────
