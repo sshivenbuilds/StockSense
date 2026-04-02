@@ -115,7 +115,7 @@ def make_chart(df, ticker):
     fig.patch.set_facecolor('#0a0a0a')
     ax.set_facecolor('#0a0a0a')
     fig.subplots_adjust(bottom=0.14, top=0.92, left=0.08, right=0.99)
-    recent = df['Close'].last('730D')
+    recent = df['Close'][df.index >= df.index[-1] - pd.DateOffset(days=730)]
     vals = np.array(recent.values).flatten()
     ax.plot(recent.index, vals, color='#ffffff', linewidth=1.4, alpha=0.9)
     ax.fill_between(recent.index, vals, vals.min() * 0.97, alpha=0.05, color='#ffffff')
