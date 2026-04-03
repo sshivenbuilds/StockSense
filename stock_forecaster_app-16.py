@@ -372,7 +372,7 @@ if run and ticker:
         with c5:
             st.markdown(f'<div class="stat-card" style="flex-direction:column;align-items:flex-start;gap:0.3rem;"><div class="stat-label">ADF Test</div>{badge}</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="info-box">🤖 Auto ARIMA selects best p,d,q by lowest AIC across a 4×4 grid. d=1 fixed. RMSE on 30-day backtest.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">🤖 Auto ARIMA selects best p,d,q by lowest AIC across a 3×3 grid. d=1 fixed. RMSE on 30-day backtest.</div>', unsafe_allow_html=True)
 
 elif run and not ticker:
     st.warning("Please select a stock first.")
