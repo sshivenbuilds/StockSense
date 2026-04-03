@@ -71,7 +71,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color:
 def fetch_data(ticker):
     for attempt in range(3):  # retry up to 3 times
         try:
-            df = yf.download(ticker, start="2015-01-01", 
+            df = yf.download(ticker, start="2019-01-01", 
                            progress=False, timeout=30)
             if df.empty:
                 continue
@@ -96,8 +96,8 @@ def fetch_data(ticker):
 
 def find_best_order(series):
     best_aic, best_order = np.inf, (1, 1, 1)
-    for p in range(0, 4):
-        for q in range(0, 4):
+    for p in range(0, 3):
+        for q in range(0, 3):
             if p == 0 and q == 0:
                 continue
             try:
@@ -108,7 +108,7 @@ def find_best_order(series):
                 continue
     return best_order, best_aic
 
-
+@st.cache_data(show_spinner=False)
 def run_arima(df):
     series = df['Close'].dropna()
     train, test = series[:-30], series[-30:]
