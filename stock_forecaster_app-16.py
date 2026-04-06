@@ -6,9 +6,7 @@ import matplotlib.dates as mdates
 import yfinance as yf
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import mean_squared_error
-from pandas.tseries.offsets import BDay
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -67,30 +65,70 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color:
 
 
 # ── HELPERS ──────────────────────────────────────────────────
+
+def next_trading_day(last_date):
+    """
+    Returns the next calendar day after last_date that is a weekday (Mon–Fri).
+    Does NOT use BDay — avoids the roll-then-add bug on non-business-day inputs.
+    Does NOT use today's date — purely based on last_date from the dataset.
+    NOTE: This skips weekends only. Market holidays are not accounted for,
+          because yfinance itself skips holidays in its data, so the last_date
+          will always be the last real trading day regardless.
+    """
+    candidate = last_date + pd.Timedelta(days=1)
+    while candidate.weekday() >= 5:   # 5=Saturday, 6=Sunday
+        candidate += pd.Timedelta(days=1)
+    return candidate
+
+
 @st.cache_data(show_spinner=False)
 def fetch_data(ticker):
-    for attempt in range(3):  # retry up to 3 times
+    """
+    Fetches real OHLCV data from yfinance.
+    - No asfreq('B') — avoids synthetic date injection
+    - No future ffill — only fills genuine gaps between real trading days
+    - Strips any weekend rows that might sneak in via yfinance edge cases
+    """
+    for attempt in range(3):
         try:
-            df = yf.download(ticker, start="2019-01-01", 
-                           progress=False, timeout=30)
+            df = yf.download(ticker, start="2019-01-01",
+                             progress=False, timeout=30)
             if df.empty:
                 continue
+
+            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
+
             if 'Close' not in df.columns:
                 continue
+
             df = df[['Close']].copy()
             df.index = pd.to_datetime(df.index)
             df = df.sort_index()
+
+            # ── Key fix: strip any weekend rows (yfinance rarely returns them,
+            #    but this is a safety net)
+            df = df[df.index.weekday < 5]
+
             df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+
+            # Fill genuine intra-series gaps (e.g. market holidays that yfinance
+            # sometimes leaves as NaN) — but ONLY between existing index entries,
+            # never extending beyond the last real date.
             df['Close'] = df['Close'].ffill()
-            df = df.asfreq('B')
-            df['Close'] = df['Close'].ffill()
-            if df['Close'].dropna().shape[0] < 60:
+
+            # Drop leading NaNs (before first real data point)
+            df = df.dropna(subset=['Close'])
+
+            if df['Close'].shape[0] < 60:
                 continue
+
             return df
+
         except Exception:
             continue
+
     return None
 
 
@@ -104,9 +142,10 @@ def find_best_order(series):
                 r = ARIMA(series, order=(p, 1, q)).fit()
                 if r.aic < best_aic:
                     best_aic, best_order = r.aic, (p, 1, q)
-            except:
+            except Exception:
                 continue
     return best_order, best_aic
+
 
 @st.cache_data(show_spinner=False)
 def run_arima(df):
@@ -285,7 +324,7 @@ STOCKS = {
     "S&P 500 Index": "^GSPC",
 }
 
-INDIAN_INDICES = {"^NSEI",  "^BSESN", "^NSEBANK", "^CNXIT"}
+INDIAN_INDICES = {"^NSEI", "^BSESN", "^NSEBANK", "^CNXIT"}
 
 
 # ── UI ───────────────────────────────────────────────────────
@@ -322,15 +361,19 @@ if run and ticker:
     if df is None or df['Close'].dropna().shape[0] < 60:
         st.error(f"Could not fetch data for **{ticker}**. Try a different stock.")
     else:
-        last_price = float(df['Close'].dropna().iloc[-1])
-        change     = next_price - last_price
-        change_pct = (change / last_price) * 100
-        direction  = "▲" if change >= 0 else "▼"
-        change_cls = "up" if change >= 0 else "down"
-        currency   = "₹" if (ticker.endswith(".NS") or ticker.endswith(".BO") or ticker in INDIAN_INDICES) else "$"
-        last_date     = df['Close'].dropna().index[-1]
-        forecast_date = (last_date + BDay(1)).strftime("%A, %d %B %Y")
-        last_date_str = last_date.strftime("%d %B %Y")
+        last_price  = float(df['Close'].dropna().iloc[-1])
+        change      = next_price - last_price
+        change_pct  = (change / last_price) * 100
+        direction   = "▲" if change >= 0 else "▼"
+        change_cls  = "up" if change >= 0 else "down"
+        currency    = "₹" if (ticker.endswith(".NS") or ticker.endswith(".BO") or ticker in INDIAN_INDICES) else "$"
+
+        # ── Correct forecast date: purely based on last real data point
+        last_date      = df['Close'].dropna().index[-1]   # guaranteed weekday (weekend rows stripped)
+        forecast_date  = next_trading_day(last_date)       # simply walks forward, skips Sat/Sun
+
+        last_date_str     = last_date.strftime("%d %B %Y")
+        forecast_date_str = forecast_date.strftime("%A, %d %B %Y")
 
         # ── TOP ROW: price card + chart ──
         left_col, right_col = st.columns([1, 2])
@@ -342,7 +385,7 @@ if run and ticker:
                 <div class="price">{currency}{next_price:,.2f}</div>
                 <div class="change {change_cls}">{direction} {currency}{abs(change):.2f} &nbsp;|&nbsp; {change_pct:+.2f}%</div>
                 <div style="margin-top:0.8rem;font-size:0.74rem;color:#555;font-family:'IBM Plex Mono',monospace;">
-                    {forecast_date}<br>
+                    {forecast_date_str}<br>
                     <span style="color:#333;">data up to {last_date_str}</span>
                 </div>
             </div>
@@ -354,11 +397,15 @@ if run and ticker:
             st.pyplot(fig, use_container_width=True)
             plt.close(fig)
 
-        # ── BOTTOM ROW: all stats spread across full width ──
+        # ── BOTTOM ROW: stats ──
         st.markdown("<hr style='border:none;border-top:1px solid #1a1a1a;margin:0.8rem 0;'>", unsafe_allow_html=True)
 
         adf_p = adf_result[1]
-        badge = '<span class="badge-stationary">✔ STATIONARY (p={:.4f})</span>'.format(adf_p) if adf_p < 0.05 else '<span class="badge-nonstationary">✘ NON-STATIONARY (p={:.4f})</span>'.format(adf_p)
+        badge = (
+            '<span class="badge-stationary">✔ STATIONARY (p={:.4f})</span>'.format(adf_p)
+            if adf_p < 0.05 else
+            '<span class="badge-nonstationary">✘ NON-STATIONARY (p={:.4f})</span>'.format(adf_p)
+        )
 
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
@@ -372,7 +419,7 @@ if run and ticker:
         with c5:
             st.markdown(f'<div class="stat-card" style="flex-direction:column;align-items:flex-start;gap:0.3rem;"><div class="stat-label">ADF Test</div>{badge}</div>', unsafe_allow_html=True)
 
-        st.markdown('<div class="info-box">🤖 Auto ARIMA selects best p,d,q by lowest AIC across a 3×3 grid. d=1 fixed. RMSE on 30-day backtest.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">🤖 Auto ARIMA selects best p,d,q by lowest AIC across a 3×3 grid. d=1 fixed. RMSE on 30-day backtest. Forecast date is the next weekday after the last real trading day in the dataset.</div>', unsafe_allow_html=True)
 
 elif run and not ticker:
     st.warning("Please select a stock first.")
@@ -387,3 +434,4 @@ else:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
